@@ -194,6 +194,7 @@ export default function Campaign() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [hasPendingWithdrawal, setHasPendingWithdrawal] = useState(false);
+  const [withdrawalsChecked, setWithdrawalsChecked] = useState(false);
 
   useEffect(() => {
     document.body.dataset.printUrl = window.location.href;
@@ -248,13 +249,18 @@ export default function Campaign() {
 
     // Check for pending withdrawals
     if (user) {
+      setWithdrawalsChecked(false);
       api
         .listWithdrawals(id)
         .then((withdrawals) => {
           const hasPending = withdrawals.some((w) => w.status === "pending");
           setHasPendingWithdrawal(hasPending);
+          setWithdrawalsChecked(true);
         })
-        .catch(() => setHasPendingWithdrawal(false));
+        .catch(() => {
+          setHasPendingWithdrawal(false);
+          setWithdrawalsChecked(false);
+        });
     }
   }, [id, user, contributed, showAll]);
 
@@ -621,6 +627,14 @@ export default function Campaign() {
   async function handleDeleteCampaign() {
     setDeleteError("");
     if (!campaign) return;
+    if (hasPendingWithdrawal || !withdrawalsChecked) {
+      setDeleteError(
+        hasPendingWithdrawal
+          ? "Campaign cannot be deleted while a withdrawal is pending."
+          : "Unable to verify pending withdrawals. Try again before deleting this campaign.",
+      );
+      return;
+    }
 
     // Check if confirmation matches campaign title
     if (deleteConfirmation !== campaign.title) {
@@ -1176,7 +1190,7 @@ export default function Campaign() {
             >
               Edit Campaign
             </button>
-            {campaign.status === "active" && !hasPendingWithdrawal && (
+            {campaign.status === "active" && (
               <button
                 type="button"
                 className="btn-secondary"
@@ -1189,6 +1203,14 @@ export default function Campaign() {
                   gap: "0.5rem",
                 }}
                 onClick={() => setShowDeleteDialog(true)}
+                disabled={!withdrawalsChecked || hasPendingWithdrawal}
+                title={
+                  hasPendingWithdrawal
+                    ? "A withdrawal is pending"
+                    : !withdrawalsChecked
+                      ? "Checking for pending withdrawals"
+                      : undefined
+                }
               >
                 Delete campaign
               </button>
@@ -2110,11 +2132,17 @@ export default function Campaign() {
                 className="btn-primary"
                 onClick={handleDeleteCampaign}
                 disabled={
-                  deleteLoading || deleteConfirmation !== campaign.title
+                  deleteLoading ||
+                  !withdrawalsChecked ||
+                  hasPendingWithdrawal ||
+                  deleteConfirmation !== campaign.title
                 }
                 style={{
                   opacity:
-                    deleteLoading || deleteConfirmation !== campaign.title
+                    deleteLoading ||
+                    !withdrawalsChecked ||
+                    hasPendingWithdrawal ||
+                    deleteConfirmation !== campaign.title
                       ? 0.6
                       : 1,
                   background: "var(--color-danger, #dc2626)",
