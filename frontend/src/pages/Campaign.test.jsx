@@ -120,6 +120,21 @@ describe('Campaign Page', () => {
     });
   });
 
+  it('disables campaign deletion when a withdrawal is pending', async () => {
+    api.listWithdrawals.mockResolvedValue([{ status: 'pending' }]);
+
+    render(
+      <MemoryRouter initialEntries={['/campaigns/1']}>
+        <Routes>
+          <Route path="/campaigns/:id" element={<Campaign />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const deleteButton = await screen.findByTitle('A withdrawal is pending');
+    expect(deleteButton).toBeDisabled();
+  });
+
   it('connects to SSE using base URL and auto-reconnects on error', async () => {
     const instances = [];
     class MockEventSource {
