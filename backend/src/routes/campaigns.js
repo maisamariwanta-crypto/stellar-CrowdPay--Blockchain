@@ -19,6 +19,7 @@ const { uploadCampaignCoverImage } = require('../services/storage');
 const { isKycRequiredForCampaigns } = require('../services/kycProvider');
 const { listCreatorCampaigns } = require('../services/userDashboardService');
 const { encryptSecret } = require('../services/walletService');
+const { MILESTONE_LIMIT } = require('../config/constants');
 const {
   createCampaignValidation,
   getCampaignsValidation,
@@ -125,7 +126,6 @@ const upload = multer({
 
 const SUPPORTED_ASSETS = getSupportedAssetCodes();
 const MILESTONE_PERCENT_SCALE = 10000;
-const MILESTONE_LIMIT = 5;
 
 const isTest = process.env.NODE_ENV === 'test';
 

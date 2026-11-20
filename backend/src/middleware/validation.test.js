@@ -106,3 +106,29 @@ test('createCampaign validation passes with valid limit parameters', async () =>
   });
   assert.equal(result.ok, true);
 });
+
+test('createCampaign validation applies the shared milestone limit at its boundary', async () => {
+  const campaign = {
+    title: 'Valid Title',
+    target_amount: '100',
+    asset_type: 'USDC',
+  };
+  const atLimit = await runValidation(createCampaignValidation, {
+    ...campaign,
+    milestones: Array.from({ length: 5 }, (_, index) => ({
+      title: `Milestone ${index + 1}`,
+      release_percentage: 20,
+    })),
+  });
+  const aboveLimit = await runValidation(createCampaignValidation, {
+    ...campaign,
+    milestones: Array.from({ length: 6 }, (_, index) => ({
+      title: `Milestone ${index + 1}`,
+      release_percentage: 1,
+    })),
+  });
+
+  assert.equal(atLimit.ok, true);
+  assert.equal(aboveLimit.ok, false);
+  assert.ok(aboveLimit.errors.some((error) => error.msg === 'Campaigns can define at most 5 milestones'));
+});
