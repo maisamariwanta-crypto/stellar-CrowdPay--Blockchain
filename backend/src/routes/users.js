@@ -34,6 +34,14 @@ router.post('/me/kyc/start', requireAuth, asyncHandler(async (req, res) => {
     });
   }
 
+  if (user.kyc_status === 'pending') {
+    return res.status(409).json({
+      status: 'pending',
+      message: 'A KYC session is already in progress. Please complete or cancel it before starting a new one.',
+      provider_reference: user.kyc_provider_reference,
+    });
+  }
+
   try {
     const session = await createKycSession({ user });
     const { rows: updatedRows } = await db.query(
