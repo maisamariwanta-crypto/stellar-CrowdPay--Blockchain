@@ -24,6 +24,7 @@ const {
   getCampaignsValidation,
   validateRequest,
 } = require('../middleware/validation');
+const { MILESTONE_LIMIT } = require('../utils/constants');
 const asyncHandler = require('../utils/asyncHandler');
 
 const crypto = require('crypto');
@@ -125,7 +126,6 @@ const upload = multer({
 
 const SUPPORTED_ASSETS = getSupportedAssetCodes();
 const MILESTONE_PERCENT_SCALE = 10000;
-const MILESTONE_LIMIT = 5;
 
 const isTest = process.env.NODE_ENV === 'test';
 

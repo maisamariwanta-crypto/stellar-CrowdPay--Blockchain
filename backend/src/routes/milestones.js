@@ -22,6 +22,7 @@ const {
   parseAmountToStroops,
   formatStroops,
 } = require('../utils/amounts');
+const { MILESTONE_LIMIT } = require('../utils/constants');
 
 function canPerformPlatformSignature(userId) {
   if (!process.env.PLATFORM_APPROVER_USER_ID) return false;
@@ -56,8 +57,6 @@ function toReleaseAmount(raisedAmount, releasePercentage) {
   const releasedStroops = (raisedStroops * scaledPct) / 100_000_000n;
   return formatStroops(releasedStroops);
 }
-
-const MILESTONE_LIMIT = 5;
 
 async function logWithdrawalEvent(client, { withdrawalRequestId, actorUserId, action, note, metadata }) {
   await client.query(
@@ -157,6 +156,17 @@ router.post('/', requireAuth, async (req, res) => {
     if (newTotal > 100.0001) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Milestone release percentages cannot exceed 100% total' });
+    }
+
+    // If this is the final allowed milestone (hits the cap), the plan must be
+    // complete: percentages must sum to exactly 100% so that a full release is
+    // always possible.  Intermediate milestones may leave headroom.
+    const isLastMilestone = (stats[0]?.count || 0) + 1 >= MILESTONE_LIMIT;
+    if (isLastMilestone && Math.abs(newTotal - 100) > 0.0001) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `The final milestone must bring the total release percentage to exactly 100% (currently ${newTotal.toFixed(4)}%)`,
+      });
     }
 
     const { rows } = await client.query(
