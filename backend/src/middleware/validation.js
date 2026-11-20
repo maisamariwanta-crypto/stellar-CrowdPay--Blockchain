@@ -1,6 +1,7 @@
 const { body, query, validationResult } = require('express-validator');
 const { Keypair } = require('@stellar/stellar-sdk');
 const { getSupportedAssetCodes } = require('../services/stellarService');
+const { MILESTONE_LIMIT } = require('../utils/constants');
 
 const SUPPORTED_ASSETS = getSupportedAssetCodes();
 const VALID_CAMPAIGN_STATUSES = [
@@ -164,7 +165,7 @@ const createCampaignValidation = [
     .custom((value) => {
       if (value == null) return true; // eslint-disable-line eqeqeq
       if (!Array.isArray(value)) throw new Error('Milestones must be an array');
-      if (value.length > 10) throw new Error('Campaigns can define at most 10 milestones');
+      if (value.length > MILESTONE_LIMIT) throw new Error(`Campaigns can define at most ${MILESTONE_LIMIT} milestones`);
       for (const [index, milestone] of value.entries()) {
         if (!milestone || typeof milestone !== 'object') {
           throw new Error(`Milestone ${index + 1} must be an object`);

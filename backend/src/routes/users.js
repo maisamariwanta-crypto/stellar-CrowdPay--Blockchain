@@ -19,7 +19,7 @@ router.get('/me', requireAuth, asyncHandler(async (req, res) => {
 
 router.post('/me/kyc/start', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await db.query(
-    `SELECT id, email, name, role, kyc_status
+    `SELECT id, email, name, role, kyc_status, kyc_provider_reference
      FROM users
      WHERE id = $1`,
     [req.user.userId]
@@ -31,6 +31,14 @@ router.post('/me/kyc/start', requireAuth, asyncHandler(async (req, res) => {
     return res.json({
       status: 'verified',
       message: 'Identity verification is already complete.',
+    });
+  }
+
+  if (user.kyc_status === 'pending') {
+    return res.status(409).json({
+      status: 'pending',
+      message: 'A KYC session is already in progress. Please complete or cancel it before starting a new one.',
+      provider_reference: user.kyc_provider_reference,
     });
   }
 

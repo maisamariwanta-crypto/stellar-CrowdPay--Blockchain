@@ -5,10 +5,10 @@ const request = require('supertest');
 const proxyquire = require('proxyquire').noCallThru();
 const { Keypair } = require('@stellar/stellar-sdk');
 
-function buildApp({ commitFails = false } = {}) {
+function buildApp({ commitFails = false, milestoneOverrides = {} } = {}) {
   process.env.PLATFORM_APPROVER_USER_ID = 'admin-1';
   process.env.PLATFORM_SECRET_KEY = Keypair.random().secret();
-  const state = { commitFails, claimed: false, submits: 0, txHashRecorded: null, released: false, insertedTx: [] };
+  const state = { commitFails, claimed: false, submits: 0, txHashRecorded: null, released: false, insertedTx: [], releaseAmount: null };
   const milestone = () => ({
     id: 'm-1', campaign_id: 'c-1', status: state.released ? 'released' : 'pending',
     campaign_status: 'funded', evidence_url: 'https://e', destination_key: Keypair.random().publicKey(),
@@ -16,6 +16,7 @@ function buildApp({ commitFails = false } = {}) {
     creator_id: 'creator-1', creator_wallet_public_key: 'GCREATOR', wallet_secret_encrypted: 'enc',
     sort_order: 0, title: 'M1', release_tx_hash: state.txHashRecorded, release_signed_xdr: state.txHashRecorded ? 'xdr' : null,
     release_amount: state.txHashRecorded ? '50.0000000' : null,
+    ...milestoneOverrides,
   });
 
   const query = async (text, params) => {
@@ -50,7 +51,10 @@ function buildApp({ commitFails = false } = {}) {
     '../middleware/auth': { requireAuth: (req, _res, next) => { req.user = { userId: 'admin-1' }; next(); } },
     '../services/alerting': { sendAlert: () => {} },
     '../services/stellarService': {
-      buildWithdrawalTransaction: async () => 'unsigned',
+      buildWithdrawalTransaction: async ({ amount }) => {
+        state.releaseAmount = amount;
+        return 'unsigned';
+      },
       signTransactionXdr: ({ xdr }) => `${xdr}+sig`,
       signatureCountFromXdr: () => 2,
       submitSignedWithdrawal: async () => {
@@ -96,4 +100,19 @@ test('a release whose DB commit failed is reconciled on retry without paying aga
   assert.equal(res2.status, 200);
   assert.equal(state.submits, 1);
   assert.equal(state.released, true);
+});
+
+test('the final standalone milestone releases the remaining campaign balance', async () => {
+  const { app, state } = buildApp({
+    milestoneOverrides: {
+      release_percentage: 10,
+      is_final_milestone: true,
+      other_milestone_percentage: 0,
+    },
+  });
+
+  const response = await request(app).post('/api/milestones/m-1/approve').send({});
+
+  assert.equal(response.status, 200);
+  assert.equal(state.releaseAmount, '100');
 });
