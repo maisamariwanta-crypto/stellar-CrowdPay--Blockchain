@@ -4,7 +4,7 @@ const express = require('express');
 const request = require('supertest');
 const proxyquire = require('proxyquire').noCallThru();
 
-function buildApp(queryImpl) {
+function buildApp({ queryImpl, createKycSessionImpl } = {}) {
   const router = proxyquire('./users', {
     '../config/database': { query: queryImpl },
     '../middleware/auth': {
@@ -13,7 +13,10 @@ function buildApp(queryImpl) {
         next();
       },
     },
-    '../services/kycProvider': { isKycRequiredForCampaigns: () => false },
+    '../services/kycProvider': {
+      isKycRequiredForCampaigns: () => false,
+      createKycSession: createKycSessionImpl,
+    },
   });
   const app = express();
   app.use(express.json());
@@ -23,12 +26,14 @@ function buildApp(queryImpl) {
 
 test('PATCH /api/users/me strips HTML from the stored display name', async () => {
   let updateParams;
-  const app = buildApp(async (text, params) => {
-    if (text.includes('UPDATE users SET name')) {
-      updateParams = params;
-      return { rows: [{ id: 'user-1', name: 'Ada' }] };
-    }
-    return { rows: [] };
+  const app = buildApp({
+    queryImpl: async (text, params) => {
+      if (text.includes('UPDATE users SET name')) {
+        updateParams = params;
+        return { rows: [{ id: 'user-1', name: 'Ada' }] };
+      }
+      return { rows: [] };
+    },
   });
 
   const response = await request(app)
@@ -42,12 +47,14 @@ test('PATCH /api/users/me strips HTML from the stored display name', async () =>
 
 test('GET /api/users/me uses the single profile handler', async () => {
   let profileQueries = 0;
-  const app = buildApp(async (text) => {
-    if (text.includes('SELECT id, email, name, wallet_public_key')) {
-      profileQueries += 1;
-      return { rows: [{ id: 'user-1', name: 'Ada' }] };
-    }
-    return { rows: [] };
+  const app = buildApp({
+    queryImpl: async (text) => {
+      if (text.includes('SELECT id, email, name, wallet_public_key')) {
+        profileQueries += 1;
+        return { rows: [{ id: 'user-1', name: 'Ada' }] };
+      }
+      return { rows: [] };
+    },
   });
 
   const response = await request(app).get('/api/users/me');
@@ -55,4 +62,36 @@ test('GET /api/users/me uses the single profile handler', async () => {
   assert.equal(response.status, 200);
   assert.equal(profileQueries, 1);
   assert.equal(response.body.name, 'Ada');
+});
+
+test('POST /api/users/me/kyc/start returns the existing reference when pending', async () => {
+  let kycSessionStarts = 0;
+  const app = buildApp({
+    queryImpl: async (text) => {
+      if (text.includes('FROM users') && text.includes('kyc_provider_reference')) {
+        return {
+          rows: [{
+            id: 'user-1',
+            email: 'user@example.com',
+            name: 'Ada',
+            role: 'creator',
+            kyc_status: 'pending',
+            kyc_provider_reference: 'provider-ref-123',
+          }],
+        };
+      }
+      return { rows: [] };
+    },
+    createKycSessionImpl: async () => {
+      kycSessionStarts += 1;
+      return {};
+    },
+  });
+
+  const response = await request(app).post('/api/users/me/kyc/start');
+
+  assert.equal(response.status, 409);
+  assert.equal(response.body.status, 'pending');
+  assert.equal(response.body.provider_reference, 'provider-ref-123');
+  assert.equal(kycSessionStarts, 0);
 });

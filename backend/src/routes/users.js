@@ -19,7 +19,7 @@ router.get('/me', requireAuth, asyncHandler(async (req, res) => {
 
 router.post('/me/kyc/start', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await db.query(
-    `SELECT id, email, name, role, kyc_status
+    `SELECT id, email, name, role, kyc_status, kyc_provider_reference
      FROM users
      WHERE id = $1`,
     [req.user.userId]

@@ -158,17 +158,6 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Milestone release percentages cannot exceed 100% total' });
     }
 
-    // If this is the final allowed milestone (hits the cap), the plan must be
-    // complete: percentages must sum to exactly 100% so that a full release is
-    // always possible.  Intermediate milestones may leave headroom.
-    const isLastMilestone = (stats[0]?.count || 0) + 1 >= MILESTONE_LIMIT;
-    if (isLastMilestone && Math.abs(newTotal - 100) > 0.0001) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: `The final milestone must bring the total release percentage to exactly 100% (currently ${newTotal.toFixed(4)}%)`,
-      });
-    }
-
     const { rows } = await client.query(
       `INSERT INTO milestones (campaign_id, title, description, release_percentage, sort_order)
        VALUES ($1, $2, $3, $4, $5)
@@ -316,7 +305,20 @@ const approveMilestoneReleaseHandler = async (req, res) => {
     `SELECT m.*, c.status AS campaign_status, c.wallet_public_key AS campaign_wallet_public_key,
             c.asset_type, c.raised_amount, c.target_amount, c.title AS campaign_title,
             c.creator_id, u.wallet_public_key AS creator_wallet_public_key,
-            u.wallet_secret_encrypted
+            u.wallet_secret_encrypted,
+            m.id = (
+              SELECT final_milestone.id
+              FROM milestones final_milestone
+              WHERE final_milestone.campaign_id = m.campaign_id
+              ORDER BY final_milestone.sort_order DESC, final_milestone.created_at DESC, final_milestone.id DESC
+              LIMIT 1
+            ) AS is_final_milestone,
+            (
+              SELECT COALESCE(SUM(other_milestone.release_percentage), 0)
+              FROM milestones other_milestone
+              WHERE other_milestone.campaign_id = m.campaign_id
+                AND other_milestone.id <> m.id
+            ) AS other_milestone_percentage
      FROM milestones m
      JOIN campaigns c ON c.id = m.campaign_id
      JOIN users u ON u.id = c.creator_id
@@ -339,6 +341,13 @@ const approveMilestoneReleaseHandler = async (req, res) => {
     return res.status(409).json({ error: 'Milestone already released' });
   }
 
+  const releasePercentage = milestone.is_final_milestone
+    ? 100 - Number(milestone.other_milestone_percentage || 0)
+    : Number(milestone.release_percentage);
+  if (!Number.isFinite(releasePercentage) || releasePercentage <= 0) {
+    return res.status(409).json({ error: 'Milestone plan has no remaining payout percentage' });
+  }
+
   let releaseAmount;
   let unsignedXdr = null;
   let fullySignedXdr;
@@ -347,7 +356,7 @@ const approveMilestoneReleaseHandler = async (req, res) => {
   if (milestone.release_tx_hash) {
     // A previous approval submitted the payout on-chain but its DB commit failed: reconcile
     // from the recorded transaction instead of paying again.
-    releaseAmount = milestone.release_amount ?? toReleaseAmount(milestone.raised_amount, milestone.release_percentage);
+    releaseAmount = milestone.release_amount ?? toReleaseAmount(milestone.raised_amount, releasePercentage);
     fullySignedXdr = milestone.release_signed_xdr;
     txHash = milestone.release_tx_hash;
     logger.warn('Reconciling milestone release that was submitted on-chain', { milestone_id: milestone.id, tx_hash: txHash });
@@ -372,7 +381,7 @@ const approveMilestoneReleaseHandler = async (req, res) => {
         .catch((e) => logger.error('Failed to release milestone claim', { milestone_id: milestone.id, error: e.message }));
     };
 
-    releaseAmount = toReleaseAmount(milestone.raised_amount, milestone.release_percentage);
+    releaseAmount = toReleaseAmount(milestone.raised_amount, releasePercentage);
     try {
       unsignedXdr = await buildWithdrawalTransaction({
         campaignWalletPublicKey: milestone.campaign_wallet_public_key,

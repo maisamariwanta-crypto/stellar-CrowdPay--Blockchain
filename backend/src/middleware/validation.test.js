@@ -106,3 +106,28 @@ test('createCampaign validation passes with valid limit parameters', async () =>
   });
   assert.equal(result.ok, true);
 });
+
+test('createCampaign validation accepts the shared milestone limit and rejects one over', async () => {
+  const milestone = (count) => Array.from({ length: count }, (_, index) => ({
+    title: `Milestone ${index + 1}`,
+    release_percentage: 100 / count,
+  }));
+  const basePayload = {
+    title: 'Valid Title',
+    target_amount: '100',
+    asset_type: 'USDC',
+  };
+
+  const atLimit = await runValidation(createCampaignValidation, {
+    ...basePayload,
+    milestones: milestone(5),
+  });
+  const overLimit = await runValidation(createCampaignValidation, {
+    ...basePayload,
+    milestones: milestone(6),
+  });
+
+  assert.equal(atLimit.ok, true);
+  assert.equal(overLimit.ok, false);
+  assert.ok(overLimit.errors.some((error) => error.msg === 'Campaigns can define at most 5 milestones'));
+});
