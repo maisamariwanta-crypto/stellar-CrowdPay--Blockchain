@@ -251,9 +251,9 @@ Rate-limited to 3 requests per hour per user.
 
 ### `POST /api/users/me/kyc/start`
 
-Authenticated. Creates a hosted KYC session with the configured provider and marks the user `pending`.
+Authenticated. Creates a hosted KYC session with the configured provider and marks the user `pending`. If the user is already pending, returns the existing `provider_reference` without creating another session. Already-verified users receive a `verified` status without a new session.
 
-Response includes `redirect_url` or `session_token`, plus the updated user. Persona is used when `KYC_PROVIDER=persona`, `PERSONA_API_KEY`, and `PERSONA_TEMPLATE_ID` are configured; otherwise local development returns a dev redirect URL.
+A newly created session response includes `redirect_url` or `session_token`, plus the updated user. Repeated requests while pending return the status and existing `provider_reference` instead. Persona is used when `KYC_PROVIDER=persona`, `PERSONA_API_KEY`, and `PERSONA_TEMPLATE_ID` are configured; otherwise local development returns a dev redirect URL.
 
 ### `POST /api/webhooks/kyc`
 
@@ -261,7 +261,7 @@ KYC provider callback. Updates the matched user to `verified` or `rejected` from
 
 ### `POST /api/campaigns`
 
-Authenticated creator/admin endpoint. The user must have `email_verified=true`. Additionally, when `KYC_REQUIRED_FOR_CAMPAIGNS` is not `false`, the user must have `kyc_status=verified`; otherwise the API returns `403` with `code=KYC_REQUIRED` or `code=EMAIL_NOT_VERIFIED`.
+Authenticated creator/admin endpoint. The user must have `email_verified=true`. Additionally, when `KYC_REQUIRED_FOR_CAMPAIGNS` is not `false`, the user must have `kyc_status=verified`; otherwise the API returns `403` with `code=KYC_REQUIRED` or `code=EMAIL_NOT_VERIFIED`. Campaign plans support up to five milestones, and their release percentages must total exactly 100%.
 
 ### `GET /api/contributions/quote`
 
@@ -583,7 +583,7 @@ Body:
 Errors:
 
 - `403` caller cannot perform platform approval
-- `409` evidence or payout destination is missing, campaign status is not `funded`/`in_progress`, or release already exists
+- `409` evidence or payout destination is missing, campaign status is not `funded`/`in_progress`, release already exists, or the campaign milestone plan does not allocate exactly 100%
 - `422` dual signature requirements were not met
 - `502` Stellar rejected the release transaction
 

@@ -22,6 +22,7 @@ const {
   parseAmountToStroops,
   formatStroops,
 } = require('../utils/amounts');
+const { MILESTONE_LIMIT } = require('../config/constants');
 
 function canPerformPlatformSignature(userId) {
   if (!process.env.PLATFORM_APPROVER_USER_ID) return false;
@@ -56,8 +57,6 @@ function toReleaseAmount(raisedAmount, releasePercentage) {
   const releasedStroops = (raisedStroops * scaledPct) / 100_000_000n;
   return formatStroops(releasedStroops);
 }
-
-const MILESTONE_LIMIT = 5;
 
 async function logWithdrawalEvent(client, { withdrawalRequestId, actorUserId, action, note, metadata }) {
   await client.query(
@@ -306,7 +305,12 @@ const approveMilestoneReleaseHandler = async (req, res) => {
     `SELECT m.*, c.status AS campaign_status, c.wallet_public_key AS campaign_wallet_public_key,
             c.asset_type, c.raised_amount, c.target_amount, c.title AS campaign_title,
             c.creator_id, u.wallet_public_key AS creator_wallet_public_key,
-            u.wallet_secret_encrypted
+            u.wallet_secret_encrypted,
+            COALESCE((
+              SELECT SUM(plan.release_percentage)
+              FROM milestones plan
+              WHERE plan.campaign_id = c.id
+            ), 0)::numeric AS milestone_total_percentage
      FROM milestones m
      JOIN campaigns c ON c.id = m.campaign_id
      JOIN users u ON u.id = c.creator_id
@@ -327,6 +331,12 @@ const approveMilestoneReleaseHandler = async (req, res) => {
   }
   if (milestone.status === 'released') {
     return res.status(409).json({ error: 'Milestone already released' });
+  }
+
+  if (!milestone.release_tx_hash && Number(milestone.milestone_total_percentage) !== 100) {
+    return res.status(409).json({
+      error: 'Milestone release percentages must sum to exactly 100% before releases can be approved',
+    });
   }
 
   let releaseAmount;

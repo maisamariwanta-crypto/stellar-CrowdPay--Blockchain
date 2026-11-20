@@ -5,7 +5,7 @@ const request = require('supertest');
 const proxyquire = require('proxyquire').noCallThru();
 const { Keypair } = require('@stellar/stellar-sdk');
 
-function buildApp({ commitFails = false } = {}) {
+function buildApp({ commitFails = false, milestoneTotalPercentage = 100 } = {}) {
   process.env.PLATFORM_APPROVER_USER_ID = 'admin-1';
   process.env.PLATFORM_SECRET_KEY = Keypair.random().secret();
   const state = { commitFails, claimed: false, submits: 0, txHashRecorded: null, released: false, insertedTx: [] };
@@ -16,6 +16,7 @@ function buildApp({ commitFails = false } = {}) {
     creator_id: 'creator-1', creator_wallet_public_key: 'GCREATOR', wallet_secret_encrypted: 'enc',
     sort_order: 0, title: 'M1', release_tx_hash: state.txHashRecorded, release_signed_xdr: state.txHashRecorded ? 'xdr' : null,
     release_amount: state.txHashRecorded ? '50.0000000' : null,
+    milestone_total_percentage: milestoneTotalPercentage,
   });
 
   const query = async (text, params) => {
@@ -96,4 +97,14 @@ test('a release whose DB commit failed is reconciled on retry without paying aga
   assert.equal(res2.status, 200);
   assert.equal(state.submits, 1);
   assert.equal(state.released, true);
+});
+
+test('milestone release is blocked until the complete plan allocates 100%', async () => {
+  const { app, state } = buildApp({ milestoneTotalPercentage: 10 });
+
+  const response = await request(app).post('/api/milestones/m-1/approve').send({});
+
+  assert.equal(response.status, 409);
+  assert.match(response.body.error, /sum to exactly 100%/);
+  assert.equal(state.submits, 0);
 });
